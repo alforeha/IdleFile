@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; frame-src 'none'">
+  <title>Folder App</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand"><span class="brand-icon">▣</span><div><strong>Folder App</strong><small>Test release 1</small></div></div>
+      <nav aria-label="Main navigation">
+        <button class="nav on" data-page="home">⌂ &nbsp;Home</button>
+        <button class="nav" data-page="create">＋ &nbsp;New project</button>
+        <button class="nav" data-page="settings">⚙ &nbsp;Settings</button>
+      </nav>
+      <div class="rail-heading">Explorer roots</div>
+      <div id="roots" class="roots"></div>
+      <div class="rail-bottom"><div id="identity"></div><button id="refresh" class="text-button">Refresh</button></div>
+    </aside>
+    <main>
+      <header class="top"><div><h1 id="title">Home</h1><p id="subtitle">Create and open projects on your shared drive.</p></div><span id="status" role="status"></span></header>
+      <section id="home" class="page"></section>
+      <section id="create" class="page hidden"></section>
+      <section id="settings" class="page hidden"></section>
+      <section id="explorer" class="page hidden"></section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
