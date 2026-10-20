@@ -3,10 +3,11 @@
   "version": "0.1.0-test.1",
   "private": true,
   "description": "Folder App test release 1",
-  "main": "src/main.js",
+  "main": "src/app/main.js",
   "scripts": {
+    "dev": "node scripts/dev.js",
     "start": "electron .",
-    "test": "node --test",
+    "test": "node --test \"test/**/*.test.js\"",
     "pack:win": "electron-builder --win nsis"
   },
   "devDependencies": {

@@ -1,11 +1,11 @@
 'use strict';
 
 const api = window.folderApp;
-const state = {settings: null, draft: null, page: 'home', editor: 'users', selected: null, structureId: '', requiredFor: null, loadingFor: null, required: [], values: {}, parent: '', preview: null, jobs: [], folder: '', folderData: null, treeOpen: new Set(), treeData: new Map()};
+const state = {settings: null, settingsError: null, settingsPath: null, localPath: null, localError: null, draft: null, page: 'home', editor: 'users', selected: null, structureId: '', requiredFor: null, loadingFor: null, required: [], values: {}, parent: '', preview: null, jobs: [], folder: '', folderData: null, treeOpen: new Set(), treeData: new Map()};
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => crypto.randomUUID();
-const saveDraft = () => { if (state.settings) state.draft = structuredClone(state.settings.data); };
+const saveDraft = () => { state.draft = state.settings ? structuredClone(state.settings.data) : null; };
 
 function message(text, type = '') {
   const node = $('#status');
@@ -63,11 +63,25 @@ async function loadTree(folder, firstPage) {
   } catch (error) { state.treeData.set(folder, {error: error.message}); state.treeOpen.add(folder); }
   renderRail();
 }
+function settingsProblems() {
+  const local = state.localError ? `<div class="notice error">${esc(state.localError)}</div>` : '';
+  const shared = state.settingsError
+    ? `<div class="notice error">Shared settings could not be loaded. The remembered path was kept. ${esc(state.settingsError)} <button class="button secondary" id="retry-settings">Try again</button></div>`
+    : '';
+  return local + shared;
+}
 function renderHome() {
   const settings = state.settings;
-  $('#home').innerHTML = `<div class="card"><h2>Shared settings</h2><p class="muted">Choose one readable JSON file on your network drive. Each PC keeps only its selected user locally.</p><div class="row"><button class="button" id="open-settings">Open existing</button><button class="button secondary" id="new-settings">Create new</button>${settings ? `<span class="path">${esc(settings.path)}</span>` : ''}</div>${settings && settings.revision === null ? '<div class="notice">New settings file selected. Save it in Settings before creating a project.</div>' : ''}</div>${settings ? `<div class="card"><h2>Who are you?</h2><div class="row"><label class="field" style="max-width:320px"><span>User</span><select id="user-select"><option value="">Select a user…</option>${settings.data.users.map(u => `<option value="${esc(u.id)}" ${u.id === settings.selectedUserId ? 'selected' : ''}>${esc(u.name)} (${esc(u.initials)})</option>`).join('')}</select></label><button class="button secondary" id="select-user">Use this identity</button></div></div><div class="card"><h2>First workflow</h2><p>Define a Markdown template and a structure, then create its folders and starter documents.</p><div class="row"><button class="button" id="go-create">New project</button><button class="button secondary" id="go-settings">Edit structures and templates</button></div></div><div class="card"><h2>Creation recovery</h2><p class="muted small">Failed creations stay in a readable local JSON queue. Review the error before choosing Retry. No operation retries itself.</p><div id="jobs"></div></div>` : ''}`;
-  $('#open-settings').onclick = () => safe(async () => { state.settings = await api.openSettings(); saveDraft(); state.jobs = await api.listJobs(); state.treeOpen.clear(); state.treeData.clear(); state.folder = ''; state.parent = state.settings?.data.standards.roots[0] || ''; invalidateRequired(); render(); });
-  $('#new-settings').onclick = () => safe(async () => { state.settings = await api.newSettings(); saveDraft(); state.jobs = await api.listJobs(); state.treeOpen.clear(); state.treeData.clear(); state.folder = ''; state.parent = state.settings?.data.standards.roots[0] || ''; invalidateRequired(); render(); });
+  const shownPath = settings?.path || state.settingsPath;
+  $('#home').innerHTML = `<div class="card"><h2>Shared settings</h2>
+    <p class="muted">Choose one readable JSON file on your network drive. Each PC keeps only its selected user locally.</p>
+    <div class="row"><button class="button" id="open-settings">Open existing</button><button class="button secondary" id="new-settings">Create new</button>${shownPath ? `<span class="path">${esc(shownPath)}</span>` : ''}</div>
+    ${settingsProblems()}
+    ${state.localPath ? `<p class="muted small">Local settings for this PC: <span class="path">${esc(state.localPath)}</span></p>` : ''}
+  </div>${settings ? `<div class="card"><h2>Who are you?</h2><div class="row"><label class="field" style="max-width:320px"><span>User</span><select id="user-select"><option value="">Select a user…</option>${settings.data.users.map(u => `<option value="${esc(u.id)}" ${u.id === settings.selectedUserId ? 'selected' : ''}>${esc(u.name)} (${esc(u.initials)})</option>`).join('')}</select></label><button class="button secondary" id="select-user">Use this identity</button></div></div><div class="card"><h2>First workflow</h2><p>Define a Markdown template and a structure, then create its folders and starter documents.</p><div class="row"><button class="button" id="go-create">New project</button><button class="button secondary" id="go-settings">Edit structures and templates</button></div></div><div class="card"><h2>Creation recovery</h2><p class="muted small">Failed creations stay in a readable local JSON queue. Review the error before choosing Retry. No operation retries itself.</p><div id="jobs"></div></div>` : ''}`;
+  $('#open-settings').onclick = () => safe(() => chooseSettings(api.openSettings));
+  $('#new-settings').onclick = () => safe(() => chooseSettings(api.newSettings));
+  if ($('#retry-settings')) $('#retry-settings').onclick = () => safe(refreshAll);
   if (!settings) {
     $('#home').insertAdjacentHTML('beforeend', '<div class="card"><h2>Creation recovery</h2><p class="muted small">Recovery records remain available even while the shared settings file is offline. Retry only after checking the target drive.</p><div id="jobs"></div></div>');
     renderJobs();
@@ -214,6 +228,54 @@ async function loadFolder(offset = 0) {
     if (state.folderData.nextOffset !== null) $('#more-folder').onclick = () => loadFolder(state.folderData.nextOffset);
   } catch (error) { if (state.folder === requested) $('#folder-items').innerHTML = `<div class="notice error">${esc(error.message)}</div>`; }
 }
+function applyBoot(boot) {
+  state.settings = boot.settings;
+  state.settingsError = boot.settingsError || null;
+  state.settingsPath = boot.settingsPath || null;
+  state.localPath = boot.localPath || null;
+  state.localError = boot.localError || null;
+  state.jobs = boot.jobs;
+  saveDraft();
+}
+function bootMessage(boot, fallback) {
+  if (boot.localError) message('Local settings could not be loaded. See Home.', 'error');
+  else if (boot.settingsError) message('Shared settings could not be loaded. See Home.', 'error');
+  else if (fallback) message(fallback);
+}
+function resetBrowsing() {
+  state.treeOpen.clear();
+  state.treeData.clear();
+  state.folder = '';
+}
+async function chooseSettings(choose) {
+  state.settings = await choose();
+  state.settingsError = null;
+  state.settingsPath = state.settings?.path || state.settingsPath;
+  saveDraft();
+  state.jobs = await api.listJobs();
+  resetBrowsing();
+  state.parent = state.settings?.data.standards.roots[0] || '';
+  invalidateRequired();
+  render();
+}
+// Re-reads both settings files; a deleted local file is recreated with defaults by the main process.
+async function refreshAll() {
+  const boot = await api.bootstrap();
+  applyBoot(boot);
+  state.preview = null;
+  invalidateRequired();
+  state.treeData.clear();
+  state.treeOpen.clear();
+  bootMessage(boot, 'Refreshed. Expand a folder to load it again.');
+  render();
+}
 document.querySelectorAll('.nav').forEach(button => button.onclick = () => setPage(button.dataset.page));
-$('#refresh').onclick = () => safe(async () => { state.settings = await api.reloadSettings(); saveDraft(); state.jobs = await api.listJobs(); state.preview = null; invalidateRequired(); state.treeData.clear(); state.treeOpen.clear(); message('Refreshed. Expand a folder to load it again.'); render(); });
-safe(async () => { const boot = await api.bootstrap(); state.settings = boot.settings; state.jobs = boot.jobs; saveDraft(); state.parent = boot.settings?.data.standards.roots[0] || ''; await loadRequired(); render(); if (boot.settingsError) message(`Shared settings unavailable: ${boot.settingsError}`, 'error'); });
+$('#refresh').onclick = () => safe(refreshAll);
+safe(async () => {
+  const boot = await api.bootstrap();
+  applyBoot(boot);
+  state.parent = boot.settings?.data.standards.roots[0] || '';
+  await loadRequired();
+  render();
+  bootMessage(boot);
+});
