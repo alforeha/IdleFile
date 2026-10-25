@@ -1,7 +1,7 @@
 'use strict';
 
 const api = window.folderApp;
-const state = {settings: null, settingsError: null, settingsPath: null, localPath: null, localError: null, draft: null, page: 'home', editor: 'users', selected: null, structureId: '', requiredFor: null, loadingFor: null, required: [], values: {}, parent: '', preview: null, jobs: [], folder: '', folderData: null, treeOpen: new Set(), treeData: new Map()};
+const state = {settings: null, settingsError: null, settingsPath: null, localPath: null, localError: null, roots: [], theme: 'system', booted: false, draft: null, page: 'home', editor: 'users', selected: null, structureId: '', requiredFor: null, loadingFor: null, required: [], values: {}, parent: '', preview: null, jobs: [], folder: '', folderData: null, treeOpen: new Set(), treeData: new Map()};
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => crypto.randomUUID();
@@ -24,6 +24,7 @@ function setPage(page) {
   $('#title').textContent = headers[page][0];
   $('#subtitle').textContent = headers[page][1];
   render();
+  window.dispatchEvent(new CustomEvent('legacy-page', {detail: page}));
 }
 function render() {
   renderRail();
@@ -33,7 +34,7 @@ function render() {
   if (state.page === 'explorer') renderExplorer();
 }
 function renderRail() {
-  const roots = state.settings?.data.standards.roots || [];
+  const roots = state.roots;
   $('#roots').innerHTML = roots.length ? roots.map(root => treeNode(root, root.split(/[\\/]/).filter(Boolean).at(-1) || root, 0)).join('') : '<p class="muted small" style="padding:0 10px">Add roots in Settings.</p>';
   $('#roots').querySelectorAll('[data-tree-toggle]').forEach(button => button.onclick = () => toggleTree(button.dataset.treeToggle));
   $('#roots').querySelectorAll('[data-tree-open]').forEach(button => button.onclick = () => openFolder(button.dataset.treeOpen));
@@ -201,12 +202,12 @@ function renderStructures() {
   $('#delete-structure').onclick = () => { if (!confirm(`Remove ${selected.name}?`)) return; state.draft.standards.structures = structures.filter(s => s.id !== selected.id); state.selected = state.draft.standards.structures[0]?.id; renderStructures(); };
 }
 function renderRootsSettings() {
-  $('#settings-body').innerHTML = `<div class="card"><h2>Explorer roots</h2><p class="muted">Use shared drive folders as roots. The explorer lists their actual contents when you open them.</p><div id="root-items">${state.draft.standards.roots.map((root, index) => `<div class="row" style="margin:7px 0"><span class="path" style="flex:1">${esc(root)}</span><button class="button secondary" data-remove-root="${index}">Remove</button></div>`).join('')}</div><button class="button secondary" id="add-root">＋ Add folder</button></div>`;
-  $('#add-root').onclick = () => safe(async () => { const folder = await api.chooseFolder(); if (folder && !state.draft.standards.roots.includes(folder)) { state.draft.standards.roots.push(folder); renderRootsSettings(); } });
-  $('#root-items').querySelectorAll('[data-remove-root]').forEach(button => button.onclick = () => { state.draft.standards.roots.splice(Number(button.dataset.removeRoot), 1); renderRootsSettings(); });
+  $('#settings-body').innerHTML = `<div class="card"><h2>Local Explorer roots</h2><p class="muted">These folders are saved on this PC. Adding or removing them does not change shared settings.</p><div id="root-items">${state.roots.map((root, index) => `<div class="row" style="margin:7px 0"><span class="path" style="flex:1">${esc(root)}</span><button class="button secondary" data-remove-root="${index}">Remove</button></div>`).join('')}</div><button class="button secondary" id="add-root">Add folder</button></div>`;
+  $('#add-root').onclick = () => safe(async () => { state.roots = await api.addRoot(); renderRootsSettings(); window.dispatchEvent(new Event('roots-changed')); });
+  $('#root-items').querySelectorAll('[data-remove-root]').forEach(button => button.onclick = () => safe(async () => { state.roots = await api.removeRoot(state.roots[Number(button.dataset.removeRoot)]); renderRootsSettings(); window.dispatchEvent(new Event('roots-changed')); }));
 }
 async function openFolder(folder) {
-  state.folder = folder; state.folderData = null; setPage('explorer');
+  window.dispatchEvent(new CustomEvent('shell-open-folder', {detail: folder}));
 }
 function renderExplorer() {
   const target = $('#explorer');
@@ -235,7 +236,11 @@ function applyBoot(boot) {
   state.localPath = boot.localPath || null;
   state.localError = boot.localError || null;
   state.jobs = boot.jobs;
+  state.roots = boot.explorerRoots || [];
+  state.theme = boot.theme || 'system';
+  state.booted = true;
   saveDraft();
+  window.dispatchEvent(new Event('legacy-boot'));
 }
 function bootMessage(boot, fallback) {
   if (boot.localError) message('Local settings could not be loaded. See Home.', 'error');
@@ -249,12 +254,14 @@ function resetBrowsing() {
 }
 async function chooseSettings(choose) {
   state.settings = await choose();
+  state.roots = (await api.bootstrap()).explorerRoots || [];
   state.settingsError = null;
   state.settingsPath = state.settings?.path || state.settingsPath;
   saveDraft();
   state.jobs = await api.listJobs();
   resetBrowsing();
-  state.parent = state.settings?.data.standards.roots[0] || '';
+  state.parent = state.roots[0] || '';
+  window.dispatchEvent(new Event('roots-changed'));
   invalidateRequired();
   render();
 }
@@ -274,7 +281,7 @@ $('#refresh').onclick = () => safe(refreshAll);
 safe(async () => {
   const boot = await api.bootstrap();
   applyBoot(boot);
-  state.parent = boot.settings?.data.standards.roots[0] || '';
+  state.parent = state.roots[0] || '';
   await loadRequired();
   render();
   bootMessage(boot);

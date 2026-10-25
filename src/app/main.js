@@ -18,9 +18,10 @@ app.whenReady().then(async () => {
   const projects = createProjectService({session, journalDir: path.join(userData, 'recovery')});
   registerIpc({session, projects});
   const window = new BrowserWindow({
-    width: 1280, height: 840, minWidth: 900, minHeight: 600,
+    width: 1280, height: 840, minWidth: 700, minHeight: 520, frame: false, autoHideMenuBar: true,
     webPreferences: {preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true}
   });
+  window.setMenuBarVisibility(false);
   await window.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 });
 

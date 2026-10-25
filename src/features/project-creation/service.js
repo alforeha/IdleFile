@@ -5,7 +5,7 @@
 const {requiredValues} = require('../templates/templates');
 const {sha256} = require('../../platform/files');
 const {listJobs} = require('../../platform/recovery-journal');
-const {configuredRoots, requireConfiguredRoot} = require('../explorer/explorer');
+const {requireConfiguredRoot} = require('../explorer/explorer');
 const {buildProjectPlan} = require('./plan');
 const {previewTarget, startCreation, resumeCreation} = require('./creation');
 
@@ -28,7 +28,7 @@ function createProjectService({session, journalDir}) {
     const structure = findStructure(settings, structureId);
     if (!structure) throw new Error('Structure no longer exists. Reload settings.');
     const plan = buildProjectPlan(structure, settings.data.standards.docTemplates, values);
-    await requireConfiguredRoot(parent, configuredRoots(settings));
+    await requireConfiguredRoot(parent, session.roots());
     const root = await previewTarget(parent, plan);
     const fingerprint = sha256(JSON.stringify({parent, plan, revision: settings.revision}));
     return {plan, root, fingerprint};

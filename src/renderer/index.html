@@ -3,31 +3,67 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; frame-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; frame-src 'none'">
   <title>Folder App</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="shell.css">
 </head>
 <body>
-  <div class="shell">
-    <aside class="rail">
-      <div class="brand"><span class="brand-icon">▣</span><div><strong>Folder App</strong><small>Test release 1</small></div></div>
-      <nav aria-label="Main navigation">
-        <button class="nav on" data-page="home">⌂ &nbsp;Home</button>
-        <button class="nav" data-page="create">＋ &nbsp;New project</button>
-        <button class="nav" data-page="settings">⚙ &nbsp;Settings</button>
-      </nav>
-      <div class="rail-heading">Explorer roots</div>
-      <div id="roots" class="roots"></div>
-      <div class="rail-bottom"><div id="identity"></div><button id="refresh" class="text-button">Refresh</button></div>
+  <div id="beta-shell">
+    <header class="beta-top">
+      <div class="beta-zone">
+        <button id="panel-toggle" class="icon-button" aria-label="Toggle Explorer panel" title="Toggle Explorer panel"></button>
+        <nav class="beta-zone-nav" aria-label="Sidebar views">
+          <button data-side="suggested" class="icon-button" aria-label="Suggested" title="Suggested"></button>
+          <button data-side="explorer" class="icon-button" aria-label="Explorer" title="Explorer"></button>
+          <button data-side="pinned" class="icon-button" aria-label="Pinned" title="Pinned"></button>
+        </nav>
+      </div>
+      <div id="tab-strip" class="beta-tabs" aria-label="Open tabs"></div>
+      <div class="drag-region" aria-hidden="true"></div>
+      <div class="window-controls">
+        <button data-window="minimize" aria-label="Minimize window" title="Minimize window"></button>
+        <button data-window="maximize" aria-label="Maximize or restore window" title="Maximize or restore window"></button>
+        <button data-window="close" aria-label="Close window" title="Close window"></button>
+      </div>
+    </header>
+    <aside id="beta-sidebar" class="beta-sidebar">
+      <div id="side-content" class="side-content"></div>
+      <footer class="side-footer">
+        <button id="attention" class="icon-button" aria-label="Attention" title="Attention"></button>
+        <button id="activity" class="icon-button" aria-label="Activity" title="Activity"></button>
+        <button id="home-add" class="icon-button" aria-label="Open Home tab" title="Open Home tab"></button>
+      </footer>
     </aside>
-    <main>
-      <header class="top"><div><h1 id="title">Home</h1><p id="subtitle">Create and open projects on your shared drive.</p></div><span id="status" role="status"></span></header>
-      <section id="home" class="page"></section>
-      <section id="create" class="page hidden"></section>
-      <section id="settings" class="page hidden"></section>
-      <section id="explorer" class="page hidden"></section>
+    <main id="beta-main" class="beta-main">
+      <div id="file-strip" class="beta-files" hidden></div>
+      <div id="beta-content" class="beta-content"></div>
+      <div id="legacy" hidden>
+        <nav class="home-workflows" aria-label="Home workflows">
+          <button data-workflow="home">Dashboard</button>
+          <button data-workflow="create">New project</button>
+          <button data-workflow="settings">Settings</button>
+          <label>Appearance <select id="theme-select" aria-label="Appearance theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        </nav>
+        <div class="shell">
+          <aside class="rail">
+            <nav aria-label="Workflows"><button class="nav on" data-page="home">Home</button><button class="nav" data-page="create">New project</button><button class="nav" data-page="settings">Settings</button></nav>
+            <div id="roots"></div><div id="identity"></div><button id="refresh">Refresh</button>
+          </aside>
+          <main>
+            <header class="top"><div><h1 id="title">Home</h1><p id="subtitle"></p></div><span id="status" role="status"></span></header>
+            <section id="home" class="page"></section>
+            <section id="create" class="page hidden"></section>
+            <section id="settings" class="page hidden"></section>
+            <section id="explorer" class="page hidden"></section>
+          </main>
+        </div>
+      </div>
     </main>
   </div>
+  <script src="icons.js"></script>
   <script src="app.js"></script>
+  <script src="shell.js"></script>
 </body>
 </html>

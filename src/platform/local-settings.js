@@ -7,21 +7,24 @@ const path = require('node:path');
 const {loadOrCreateJson} = require('./json-store');
 const {writeAtomic} = require('./files');
 
-const LOCAL_SCHEMA_VERSION = 1;
+const LOCAL_SCHEMA_VERSION = 2;
 const LABEL = 'Local settings';
 
 function defaultLocalSettings() {
-  return {schemaVersion: LOCAL_SCHEMA_VERSION, settingsPath: null, userId: null};
+  return {schemaVersion: LOCAL_SCHEMA_VERSION, settingsPath: null, userId: null, explorerRoots: [], theme: 'system'};
 }
 
 // Files written before Stage 1 have no schemaVersion. They are read as version 1 and keep every field.
 function validateLocalSettings(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Expected a JSON object.');
   const version = data.schemaVersion ?? LOCAL_SCHEMA_VERSION;
-  if (version !== LOCAL_SCHEMA_VERSION) throw new Error(`Unsupported local settings schema. Expected version ${LOCAL_SCHEMA_VERSION}.`);
+  if (version !== 1 && version !== LOCAL_SCHEMA_VERSION) throw new Error(`Unsupported local settings schema. Expected version 1 or ${LOCAL_SCHEMA_VERSION}.`);
   for (const key of ['settingsPath', 'userId']) {
     if (data[key] != null && typeof data[key] !== 'string') throw new Error(`${key} must be text or null.`);
   }
+  if (data.explorerRoots !== undefined && (!Array.isArray(data.explorerRoots) || data.explorerRoots.some(root => typeof root !== 'string')))
+    throw new Error('explorerRoots must be a list of paths.');
+  if (data.theme !== undefined && !['system', 'light', 'dark'].includes(data.theme)) throw new Error('theme must be system, light, or dark.');
   return {...data, schemaVersion: version, settingsPath: data.settingsPath || null, userId: data.userId || null};
 }
 

@@ -8,6 +8,9 @@ const {relativeFile} = require('../src/platform/paths');
 const {requiredValues} = require('../src/features/templates/templates');
 const {buildProjectPlan} = require('../src/features/project-creation/plan');
 const {startCreation, resumeCreation, previewTarget} = require('../src/features/project-creation/creation');
+const {createProjectService} = require('../src/features/project-creation/service');
+const {createSettingsSession} = require('../src/features/settings/session');
+const {saveSettings} = require('../src/features/settings/shared-settings');
 const {scratch, fixture} = require('./helpers');
 
 test('Windows relative paths reject traversal, invalid names and device names', () => {
@@ -96,4 +99,25 @@ test('creation refuses a junction substituted for a generated folder', async t =
   assert.equal(job.status, 'needs-attention');
   assert.match(job.lastError, /replaced by a link|changed/);
   await assert.rejects(fs.stat(path.join(outside, 'Alpha-info.md')), {code: 'ENOENT'});
+});
+
+test('project preview uses local roots even when shared version-1 roots differ', async t => {
+  const dir = await scratch(t);
+  const sharedRoot = path.join(dir, 'SharedRoot');
+  const localRoot = path.join(dir, 'LocalRoot');
+  await fs.mkdir(sharedRoot);
+  await fs.mkdir(localRoot);
+  const session = createSettingsSession({localFile: path.join(dir, 'local.json')});
+  await session.loadLocal();
+  const shared = await session.useNew(path.join(dir, 'shared.json'));
+  const {structure, templates, values} = fixture();
+  shared.data.standards.roots = [sharedRoot];
+  shared.data.standards.structures = [structure];
+  shared.data.standards.docTemplates = templates;
+  await saveSettings(shared.path, shared.data, shared.revision);
+  await session.selectUser(shared.data.users[0].id);
+  await session.addRoot(localRoot);
+  const projects = createProjectService({session, journalDir: path.join(dir, 'recovery')});
+  assert.ok((await projects.preview({parent: localRoot, structureId: structure.id, values})).root.startsWith(localRoot));
+  await assert.rejects(projects.preview({parent: sharedRoot, structureId: structure.id, values}), /outside local Explorer roots/);
 });

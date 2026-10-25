@@ -3,8 +3,9 @@
 // IPC channel table. Each channel matches one method exposed by preload.js; dialogs stay here so
 // feature services can run without Electron in tests.
 
-const {dialog, ipcMain} = require('electron');
-const {listConfiguredFolder} = require('../features/explorer/explorer');
+const {dialog, ipcMain, BrowserWindow} = require('electron');
+const fs = require('node:fs/promises');
+const {listConfiguredFolder, inspectConfiguredFile} = require('../features/explorer/explorer');
 
 const JSON_FILTER = [{name: 'JSON', extensions: ['json']}];
 
@@ -44,6 +45,23 @@ function registerIpc({session, projects}) {
   });
 
   ipcMain.handle('settings.reload', () => session.current());
+  ipcMain.handle('roots.add', async () => {
+    const result = await dialog.showOpenDialog({title: 'Add local Explorer root', properties: ['openDirectory']});
+    return result.canceled ? session.roots() : session.addRoot(result.filePaths[0]);
+  });
+  ipcMain.handle('roots.remove', (_, folder) => session.removeRoot(folder));
+  ipcMain.handle('roots.status', async () => Promise.all(session.roots().map(async root => {
+    try { return {path: root, available: (await fs.stat(root)).isDirectory()}; }
+    catch (error) { return {path: root, available: false, error: error.message}; }
+  })));
+  ipcMain.handle('theme.set', (_, theme) => session.setTheme(theme));
+  ipcMain.handle('window.control', (event, action) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) return;
+    if (action === 'minimize') window.minimize();
+    else if (action === 'maximize') window.isMaximized() ? window.unmaximize() : window.maximize();
+    else if (action === 'close') window.close();
+  });
   ipcMain.handle('settings.save', (_, {data, revision}) => session.save(data, revision));
   ipcMain.handle('user.select', (_, id) => session.selectUser(id));
   ipcMain.handle('projects.required', (_, structureId) => projects.required(structureId));
@@ -51,7 +69,8 @@ function registerIpc({session, projects}) {
   ipcMain.handle('projects.create', (_, request) => projects.create(request));
   ipcMain.handle('projects.resume', (_, id) => projects.resume(id));
   ipcMain.handle('projects.jobs', () => projects.jobs());
-  ipcMain.handle('explorer.list', async (_, target, offset) => listConfiguredFolder(await session.requireCurrent(), target, offset));
+  ipcMain.handle('explorer.list', (_, target, offset, sort, direction) => listConfiguredFolder(session.roots(), target, offset, sort, direction));
+  ipcMain.handle('explorer.file', (_, target) => inspectConfiguredFile(session.roots(), target));
 }
 
 module.exports = {registerIpc};

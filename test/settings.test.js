@@ -92,8 +92,8 @@ test('open existing never creates and create new never replaces', async t => {
 test('local settings are created when missing, keep older fields, and stay intact when invalid', async t => {
   const dir = await scratch(t);
   const file = path.join(dir, 'profile', 'local.json');
-  assert.deepEqual(await loadLocalSettings(file), {schemaVersion: 1, settingsPath: null, userId: null});
-  assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).schemaVersion, 1);
+  assert.deepEqual(await loadLocalSettings(file), {schemaVersion: 2, settingsPath: null, userId: null, explorerRoots: [], theme: 'system'});
+  assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).schemaVersion, 2);
 
   // A file from the checkpoint build has no schemaVersion; it loads and keeps unknown fields on save.
   await fs.writeFile(file, JSON.stringify({settingsPath: 'P:\\folderapp.json', userId: 'u1', later: {keep: true}}));
@@ -144,4 +144,42 @@ test('session does not overwrite an invalid local file', async t => {
   assert.equal(await session.current(), null);
   await assert.rejects(session.useNew(path.join(dir, 'folderapp.json')), /not saved/);
   assert.equal(await fs.readFile(localFile, 'utf8'), '{"schemaVersion": 7}');
+});
+
+test('version-1 roots import once, stay local, and a reset starts empty', async t => {
+  const dir = await scratch(t);
+  const sharedFile = path.join(dir, 'shared.json');
+  const localFile = path.join(dir, 'local.json');
+  const root = path.join(dir, 'Projects');
+  const extra = path.join(dir, 'Extra');
+  await fs.mkdir(root);
+  await fs.mkdir(extra);
+  const shared = await loadSettings(sharedFile);
+  shared.data.standards.roots = [root, root + path.sep, path.join(dir, 'Disconnected')];
+  await saveSettings(sharedFile, shared.data, shared.revision);
+  const sharedBefore = await fs.readFile(sharedFile, 'utf8');
+  await fs.writeFile(localFile, JSON.stringify({schemaVersion: 1, settingsPath: sharedFile, userId: null, keep: 'yes'}));
+  const session = createSettingsSession({localFile});
+  await session.loadLocal();
+  await session.current();
+  assert.deepEqual(session.roots(), [root, path.join(dir, 'Disconnected')]);
+  assert.ok((await fs.readFile(localFile, 'utf8')).includes('importedFrom'));
+  assert.equal(JSON.parse(await fs.readFile(localFile, 'utf8')).keep, 'yes');
+  assert.equal(await fs.readFile(sharedFile, 'utf8'), sharedBefore);
+  await session.addRoot(root + path.sep);
+  assert.equal(session.roots().length, 2);
+  await session.addRoot(extra);
+  await session.setTheme('dark');
+  const restarted = createSettingsSession({localFile});
+  await restarted.loadLocal();
+  await restarted.current();
+  assert.deepEqual(restarted.roots(), [root, path.join(dir, 'Disconnected'), extra]);
+  assert.equal(restarted.status().theme, 'dark');
+  await restarted.removeRoot(root);
+  assert.equal(restarted.roots().includes(root), false);
+  await fs.rm(localFile);
+  await restarted.loadLocal();
+  await restarted.current();
+  assert.deepEqual(restarted.roots(), []);
+  assert.equal(restarted.status().theme, 'system');
 });

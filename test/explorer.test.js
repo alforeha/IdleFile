@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const {listDirectoryPage, requireConfiguredRoot} = require('../src/features/explorer/explorer');
+const {listDirectoryPage, listConfiguredFolder, inspectConfiguredFile, requireConfiguredRoot} = require('../src/features/explorer/explorer');
 const {scratch} = require('./helpers');
 
 test('explorer pagination reaches entries after the first 500', async t => {
@@ -27,5 +27,20 @@ test('project parent must be under a saved explorer root for reopening', async t
   await fs.mkdir(projectParent, {recursive: true});
   await fs.mkdir(other);
   assert.equal(await requireConfiguredRoot(projectParent, [root]), await fs.realpath(projectParent));
-  await assert.rejects(requireConfiguredRoot(other, [root]), /outside saved Explorer roots/);
+  await assert.rejects(requireConfiguredRoot(other, [root]), /outside local Explorer roots/);
+});
+
+test('folder sorting is global, metadata is real, and removed roots deny browsing', async t => {
+  const dir = await scratch(t);
+  const root = path.join(dir, 'root');
+  await fs.mkdir(root);
+  await fs.mkdir(path.join(root, 'Folder'));
+  await fs.writeFile(path.join(root, 'b.md'), '# Beta');
+  await fs.writeFile(path.join(root, 'a.pdf'), 'PDF');
+  const listing = await listConfiguredFolder([root], root, 0, 'type', 'desc');
+  assert.deepEqual(listing.entries.map(item => item.name), ['Folder', 'a.pdf', 'b.md']);
+  assert.ok(listing.entries.every(item => item.modified && !Number.isNaN(Date.parse(item.modified))));
+  assert.equal((await inspectConfiguredFile([root], path.join(root, 'b.md'))).type, 'MD');
+  await assert.rejects(listConfiguredFolder([], root), /outside local Explorer roots/);
+  await assert.rejects(inspectConfiguredFile([], path.join(root, 'b.md')), /outside local Explorer roots/);
 });
