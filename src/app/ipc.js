@@ -5,11 +5,13 @@
 
 const {dialog, ipcMain, BrowserWindow} = require('electron');
 const fs = require('node:fs/promises');
-const {listConfiguredFolder, inspectConfiguredFile} = require('../features/explorer/explorer');
+const {listDirectoryPage, inspectFile, resolvedKind, mapLimited, hasChild} = require('../features/explorer/explorer');
+const {createVisibleFolderWatches} = require('./visible-folder-watches');
 
 const JSON_FILTER = [{name: 'JSON', extensions: ['json']}];
 
 function registerIpc({session, projects}) {
+  const visibleWatches = new WeakMap();
   // Re-reads local settings each time, so a deleted local file is recreated on refresh.
   ipcMain.handle('bootstrap', async () => {
     await session.loadLocal();
@@ -50,10 +52,16 @@ function registerIpc({session, projects}) {
     return result.canceled ? session.roots() : session.addRoot(result.filePaths[0]);
   });
   ipcMain.handle('roots.remove', (_, folder) => session.removeRoot(folder));
-  ipcMain.handle('roots.status', async () => Promise.all(session.roots().map(async root => {
-    try { return {path: root, available: (await fs.stat(root)).isDirectory()}; }
+  ipcMain.handle('pins.add', (_, folder) => session.addPin(folder));
+  ipcMain.handle('pins.remove', (_, folder) => session.removePin(folder));
+  ipcMain.handle('locations.status', async (_, items) => mapLimited(items.slice(0, 500), async item => {
+    try { const found = await resolvedKind(item.path); return {...item, available: found.kind === item.type, status: found.kind === 'folder' ? await hasChild(item.path) : null}; }
+    catch (error) { return {...item, available: false, error: error.message}; }
+  }));
+  ipcMain.handle('roots.status', async () => mapLimited(session.roots(), async root => {
+    try { return {path: root, available: (await fs.stat(root)).isDirectory(), status: await hasChild(root)}; }
     catch (error) { return {path: root, available: false, error: error.message}; }
-  })));
+  }));
   ipcMain.handle('theme.set', (_, theme) => session.setTheme(theme));
   ipcMain.handle('window.control', (event, action) => {
     const window = BrowserWindow.fromWebContents(event.sender);
@@ -69,8 +77,14 @@ function registerIpc({session, projects}) {
   ipcMain.handle('projects.create', (_, request) => projects.create(request));
   ipcMain.handle('projects.resume', (_, id) => projects.resume(id));
   ipcMain.handle('projects.jobs', () => projects.jobs());
-  ipcMain.handle('explorer.list', (_, target, offset, sort, direction) => listConfiguredFolder(session.roots(), target, offset, sort, direction));
-  ipcMain.handle('explorer.file', (_, target) => inspectConfiguredFile(session.roots(), target));
+  ipcMain.handle('explorer.list', (_, target, offset, sort, direction) => listDirectoryPage(target, offset, undefined, sort, direction));
+  ipcMain.handle('explorer.file', (_, target) => inspectFile(target));
+  ipcMain.handle('explorer.visible', (event, folders) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) return;
+    if (!visibleWatches.has(window)) visibleWatches.set(window, createVisibleFolderWatches(window));
+    visibleWatches.get(window).sync(folders);
+  });
 }
 
 module.exports = {registerIpc};

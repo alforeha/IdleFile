@@ -1,49 +1,96 @@
 'use strict';
 
-// Explorer rules: which folders are inside the configured roots, and paged directory listings.
-
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const PAGE_SIZE = 500;
+const METADATA_CONCURRENCY = 8;
+let activeMetadata = 0;
+const waitingMetadata = [];
 
-// The one place that reads where roots are stored; the planned move to local settings changes only this.
-function configuredRoots(localRoots) { return localRoots; }
-
-function entryKind(entry) {
-  if (entry.isDirectory()) return 'folder';
-  return entry.isSymbolicLink() ? 'link' : 'file';
+async function bounded(worker) {
+  if (activeMetadata >= METADATA_CONCURRENCY) await new Promise(resolve => waitingMetadata.push(resolve));
+  else activeMetadata++;
+  try { return await worker(); }
+  finally {
+    if (waitingMetadata.length) waitingMetadata.shift()();
+    else activeMetadata--;
+  }
 }
 
-async function listDirectoryPage(actual, offset = 0, pageSize = PAGE_SIZE, sort = 'name', direction = 'asc') {
-  const entries = await fs.readdir(actual, {withFileTypes: true});
-  const folderFirst = item => (item.kind === 'folder' ? 0 : 1);
-  const mapped = entries.map(e => ({name: e.name, path: path.join(actual, e.name), kind: entryKind(e)}));
-  async function withModified(item) {
-    let modified = null;
-    try { modified = (await fs.lstat(item.path)).mtime.toISOString(); }
-    catch { /* Keep the entry visible when its metadata cannot be read. */ }
-    return {...item, modified};
+function fullPath(target) {
+  if (typeof target !== 'string' || !target.trim() || !path.isAbsolute(target) || target.includes('\0'))
+    throw new Error('Enter a full local or network path.');
+  if (process.platform === 'win32') {
+    if (!/^[A-Za-z]:[\\/]/.test(target) && !/^\\\\[^\\/]+[\\/][^\\/]+/.test(target))
+      throw new Error('Enter a full drive or UNC path.');
+    const tail = target.slice(path.parse(target).root.length);
+    const reserved = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i;
+    for (const segment of tail.split(/[\\/]+/).filter(Boolean)) {
+      if (/[<>:"|?*\x00-\x1f]/.test(segment) || /[. ]$/.test(segment) || reserved.test(segment))
+        throw new Error(`Invalid Windows path segment: ${segment}`);
+    }
   }
-  const sortable = sort === 'modified' ? await Promise.all(mapped.map(withModified)) : mapped;
+  return path.normalize(target);
+}
+
+async function resolvedKind(target) {
+  const requested = fullPath(target);
+  const actual = await fs.realpath(requested);
+  const stat = await fs.stat(actual);
+  return {path: requested, actual, kind: stat.isDirectory() ? 'folder' : stat.isFile() ? 'file' : 'other'};
+}
+
+async function mapLimited(items, worker, limit = METADATA_CONCURRENCY) {
+  const result = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({length: Math.min(limit, items.length)}, async () => {
+    while (next < items.length) { const index = next++; result[index] = await bounded(() => worker(items[index])); }
+  }));
+  return result;
+}
+
+async function hasChild(folder) {
+  let handle;
+  try { handle = await fs.opendir(folder); return !(await handle.read()) ? 'empty' : null; }
+  catch (error) { return ['ENOENT', 'EACCES', 'EPERM', 'ENOTCONN', 'ENETUNREACH', 'EHOSTUNREACH', 'ETIMEDOUT', 'EIO', 'ENODEV'].includes(error.code) ? 'unavailable' : null; }
+  finally { if (handle) await handle.close(); }
+}
+
+async function listDirectoryPage(folder, offset = 0, pageSize = PAGE_SIZE, sort = 'name', direction = 'asc') {
+  const {kind} = await resolvedKind(folder);
+  if (kind !== 'folder') throw new Error('This path is not a folder.');
+  const actual = fullPath(folder);
+  const entries = await fs.readdir(actual, {withFileTypes: true});
+  const mapped = entries.map(entry => ({name: entry.name, path: path.join(actual, entry.name), kind: entry.isDirectory() ? 'folder' : entry.isSymbolicLink() ? 'link' : 'file'}));
+  async function metadata(item) {
+    let modified = null;
+    let kind = item.kind;
+    try {
+      const stat = await fs.stat(item.path);
+      modified = stat.mtime.toISOString();
+      if (kind === 'link') kind = stat.isDirectory() ? 'folder' : 'file';
+    } catch { /* A disappearing entry remains visible until refresh. */ }
+    return {...item, kind, modified};
+  }
+  // Resolve links before sorting: a linked directory belongs with directories on every page.
+  const sortable = await mapLimited(mapped, item => item.kind === 'link' || sort === 'modified' ? metadata(item) : item);
   const multiplier = direction === 'desc' ? -1 : 1;
-  const sorted = sortable.sort((a, b) => folderFirst(a) - folderFirst(b) || multiplier * (
+  const treeOrder = sort === 'tree';
+  sortable.sort((a, b) => (a.kind === 'folder' ? (treeOrder ? 1 : 0) : (treeOrder ? 0 : 1)) - (b.kind === 'folder' ? (treeOrder ? 1 : 0) : (treeOrder ? 0 : 1)) || multiplier * (
     sort === 'modified' ? (a.modified || '').localeCompare(b.modified || '') :
     sort === 'type' ? path.extname(a.name).localeCompare(path.extname(b.name)) : 0
   ) || multiplier * a.name.localeCompare(b.name));
   const start = Number.isInteger(offset) && offset >= 0 ? offset : 0;
-  const page = sorted.slice(start, start + pageSize);
-  return {
-    path: actual,
-    total: sorted.length,
-    nextOffset: start + pageSize < sorted.length ? start + pageSize : null,
-    entries: sort === 'modified' ? page : await Promise.all(page.map(withModified))
-  };
+  const count = Math.min(PAGE_SIZE, Number.isInteger(pageSize) && pageSize > 0 ? pageSize : PAGE_SIZE);
+  const page = sort === 'modified' ? sortable.slice(start, start + count) : await mapLimited(sortable.slice(start, start + count), metadata);
+  const checked = await mapLimited(page, async item => item.kind === 'folder' ? {...item, status: await hasChild(item.path)} : item);
+  return {path: actual, total: sortable.length, nextOffset: start + count < sortable.length ? start + count : null, entries: checked};
 }
 
-// Resolves links and junctions before comparing, so a path cannot escape the roots through one.
+// Project creation alone continues to require a saved local root.
 async function requireConfiguredRoot(target, roots) {
-  const actual = await fs.realpath(target);
+  const actual = (await resolvedKind(target)).actual;
   for (const root of roots) {
     try {
       const diff = path.relative(await fs.realpath(root), actual);
@@ -55,17 +102,11 @@ async function requireConfiguredRoot(target, roots) {
   throw new Error('Folder is outside local Explorer roots. Add its parent folder in Explorer before creating or opening a project.');
 }
 
-async function listConfiguredFolder(roots, target, offset = 0, sort = 'name', direction = 'asc') {
-  const actual = await requireConfiguredRoot(target, configuredRoots(roots));
-  if (!(await fs.stat(actual)).isDirectory()) throw new Error('This path is not a folder.');
-  return listDirectoryPage(actual, offset, PAGE_SIZE, sort, direction);
+async function inspectFile(target) {
+  const info = await resolvedKind(target);
+  if (info.kind !== 'file') throw new Error('This path is not a file.');
+  const stat = await fs.stat(info.actual);
+  return {path: info.path, name: path.basename(info.path), type: path.extname(info.path).slice(1).toUpperCase() || 'File', modified: stat.mtime.toISOString()};
 }
 
-async function inspectConfiguredFile(roots, target) {
-  const actual = await requireConfiguredRoot(target, roots);
-  const info = await fs.stat(actual);
-  if (!info.isFile()) throw new Error('This path is not a file.');
-  return {path: actual, name: path.basename(actual), type: path.extname(actual).slice(1).toUpperCase() || 'File', modified: info.mtime.toISOString()};
-}
-
-module.exports = {configuredRoots, listDirectoryPage, requireConfiguredRoot, listConfiguredFolder, inspectConfiguredFile};
+module.exports = {PAGE_SIZE, METADATA_CONCURRENCY, fullPath, resolvedKind, mapLimited, hasChild, listDirectoryPage, requireConfiguredRoot, inspectFile};

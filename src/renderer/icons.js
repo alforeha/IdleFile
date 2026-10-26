@@ -3,6 +3,7 @@ const ICON_PATHS = Object.freeze({
   panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
   home: '<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',
   folder: '<path d="M3 6h6l2 2h10v11H3z"/>',
+  empty: '<circle cx="12" cy="12" r="9"/><path d="M7 12h10"/>',
   file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h4"/>',
   file_scope_folder: '<path d="M2 7h7l2 2h11v11H2z"/>',
   file_scope_tab: '<path d="M2 20V9h5V5h10v4h5v11H2z"/><path d="M7 13h10m-10 3h7"/>',

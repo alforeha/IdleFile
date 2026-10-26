@@ -92,12 +92,13 @@ test('open existing never creates and create new never replaces', async t => {
 test('local settings are created when missing, keep older fields, and stay intact when invalid', async t => {
   const dir = await scratch(t);
   const file = path.join(dir, 'profile', 'local.json');
-  assert.deepEqual(await loadLocalSettings(file), {schemaVersion: 2, settingsPath: null, userId: null, explorerRoots: [], theme: 'system'});
+  assert.deepEqual(await loadLocalSettings(file), {schemaVersion: 2, settingsPath: null, userId: null, explorerRoots: [], folderPins: [], theme: 'system'});
   assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).schemaVersion, 2);
 
   // A file from the checkpoint build has no schemaVersion; it loads and keeps unknown fields on save.
   await fs.writeFile(file, JSON.stringify({settingsPath: 'P:\\folderapp.json', userId: 'u1', later: {keep: true}}));
   const legacy = await loadLocalSettings(file);
+  assert.equal(legacy.schemaVersion, 1);
   assert.equal(legacy.settingsPath, 'P:\\folderapp.json');
   await saveLocalSettings(file, {...legacy, userId: 'u2'});
   assert.deepEqual(JSON.parse(await fs.readFile(file, 'utf8')).later, {keep: true});
@@ -182,4 +183,72 @@ test('version-1 roots import once, stay local, and a reset starts empty', async 
   await restarted.current();
   assert.deepEqual(restarted.roots(), []);
   assert.equal(restarted.status().theme, 'system');
+});
+
+test('versionless local profile imports roots once, preserves shared bytes, and reset stays fresh', async t => {
+  const dir = await scratch(t);
+  const sharedFile = path.join(dir, 'shared.json');
+  const localFile = path.join(dir, 'local.json');
+  const root = path.join(dir, 'Projects');
+  await fs.mkdir(root);
+  const shared = await loadSettings(sharedFile);
+  shared.data.standards.roots = [root, root + path.sep];
+  await saveSettings(sharedFile, shared.data, shared.revision);
+  const before = await fs.readFile(sharedFile, 'utf8');
+  await fs.writeFile(localFile, JSON.stringify({settingsPath: sharedFile, userId: null, extra: 'kept'}));
+  const first = createSettingsSession({localFile});
+  await first.loadLocal(); await first.current();
+  assert.deepEqual(first.roots(), [root]);
+  assert.equal(JSON.parse(await fs.readFile(localFile, 'utf8')).extra, 'kept');
+  const second = createSettingsSession({localFile});
+  await second.loadLocal(); await second.removeRoot(root);
+  const third = createSettingsSession({localFile});
+  await third.loadLocal(); await third.current();
+  assert.deepEqual(third.roots(), []);
+  assert.equal(await fs.readFile(sharedFile, 'utf8'), before);
+  await fs.rm(localFile);
+  await third.loadLocal(); await third.current();
+  assert.deepEqual(third.roots(), []);
+  assert.equal(third.status().theme, 'system');
+});
+
+test('local pins persist independently and shared suggestions preserve unrelated data with conflicts', async t => {
+  const dir = await scratch(t);
+  const sharedFile = path.join(dir, 'shared.json');
+  const localFile = path.join(dir, 'local.json');
+  const folder = path.join(dir, 'outside-root');
+  const file = path.join(folder, 'note.md');
+  await fs.mkdir(folder); await fs.writeFile(file, '# note');
+  const session = createSettingsSession({localFile});
+  await session.loadLocal();
+  const original = await session.useNew(sharedFile);
+  await session.addPin(folder);
+  const reopened = createSettingsSession({localFile});
+  await reopened.loadLocal();
+  assert.deepEqual(reopened.pins(), [folder]);
+  const proposed = structuredClone(original.data);
+  proposed.suggestedLocations = [{id: 'one', label: 'Outside', type: 'folder', path: folder}, {id: 'two', label: 'Note', type: 'file', path: file}];
+  const saved = await reopened.save(proposed, original.revision);
+  assert.equal(saved.data.users.length, original.data.users.length);
+  assert.deepEqual(saved.data.perUser, original.data.perUser);
+  assert.deepEqual(saved.data.standards, original.data.standards);
+  assert.deepEqual(saved.data.branding, original.data.branding);
+  await assert.rejects(reopened.save(proposed, original.revision), /changed since/);
+  const revised = structuredClone(saved.data);
+  revised.suggestedLocations[0].label = 'Renamed';
+  revised.suggestedLocations.splice(1, 1);
+  const edited = await reopened.save(revised, saved.revision);
+  assert.deepEqual(edited.data.suggestedLocations.map(item => item.label), ['Renamed']);
+  assert.deepEqual(edited.data.standards, original.data.standards);
+  const unavailable = structuredClone(edited.data);
+  unavailable.suggestedLocations.push({id: 'offline', label: 'Offline share', type: 'folder', path: path.join(dir, 'disconnected-share', 'folder')});
+  const withOffline = await reopened.save(unavailable, edited.revision);
+  assert.equal(withOffline.data.suggestedLocations[1].label, 'Offline share');
+  await reopened.removePin(folder);
+  assert.deepEqual(reopened.pins(), []);
+  assert.equal((await fs.readFile(file, 'utf8')), '# note');
+  proposed.suggestedLocations[0].type = 'file';
+  await assert.rejects(reopened.save(proposed, withOffline.revision), /type does not match/);
+  proposed.suggestedLocations[0].path = 'relative\\folder';
+  await assert.rejects(reopened.save(proposed, withOffline.revision), /full local or network path/);
 });

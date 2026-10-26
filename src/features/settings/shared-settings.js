@@ -6,6 +6,7 @@
 
 const crypto = require('node:crypto');
 const {relativeFile} = require('../../platform/paths');
+const {fullPath} = require('../explorer/explorer');
 const {readJson, createJson, loadOrCreateJson, saveJsonLocked} = require('../../platform/json-store');
 
 const SCHEMA_VERSION = 1;
@@ -16,6 +17,7 @@ function initialSettings() {
     schemaVersion: SCHEMA_VERSION,
     users: [{id: adminId, name: 'Admin', initials: 'AD', position: 'Admin'}],
     perUser: {[adminId]: {pins: [], recentPins: []}},
+    suggestedLocations: [],
     standards: {roots: [], namingTags: [], structures: [], docTemplates: []},
     branding: {appName: 'Folder App', accentColor: '#e8892b', logoPath: ''}
   };
@@ -50,6 +52,13 @@ function validateSettings(s) {
   validateUniqueIds('users', s.users);
   validateUniqueIds('structures', s.standards?.structures);
   validateUniqueIds('docTemplates', s.standards?.docTemplates);
+  if (s.suggestedLocations !== undefined) {
+    validateUniqueIds('suggestedLocations', s.suggestedLocations);
+    for (const item of s.suggestedLocations) {
+      if (!item.label?.trim() || !['folder', 'file'].includes(item.type)) throw new Error('Each suggestion needs a label and folder or file type.');
+      fullPath(item.path);
+    }
+  }
   if (!Array.isArray(s.standards.roots) || !Array.isArray(s.standards.namingTags)) throw new Error('Roots and naming tags must be lists.');
   if (!s.perUser || typeof s.perUser !== 'object') throw new Error('Per-user settings are required.');
   for (const user of s.users) {

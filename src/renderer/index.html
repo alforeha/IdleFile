@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="shell.css">
+  <link rel="stylesheet" href="shortcuts.css">
 </head>
 <body>
   <div id="beta-shell">
@@ -44,7 +45,6 @@
           <button data-workflow="home">Dashboard</button>
           <button data-workflow="create">New project</button>
           <button data-workflow="settings">Settings</button>
-          <label>Appearance <select id="theme-select" aria-label="Appearance theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
         </nav>
         <div class="shell">
           <aside class="rail">
@@ -62,8 +62,13 @@
       </div>
     </main>
   </div>
+  <dialog id="path-dialog"><form method="dialog"><h2>Go to folder</h2><label>Full folder path<input type="text" aria-label="Full folder path" placeholder="C:\\Projects or \\\\server\\share\\Projects" required></label><div class="dialog-actions"><button type="button" data-browse>Browse…</button><button type="button" data-cancel>Cancel</button><button type="submit">Open</button></div></form></dialog>
   <script src="icons.js"></script>
   <script src="app.js"></script>
+  <script src="settings-locations.js"></script>
+  <script src="explorer-tree.js"></script>
+  <script src="sidebar-width.js"></script>
+  <script src="shortcuts.js"></script>
   <script src="shell.js"></script>
 </body>
 </html>

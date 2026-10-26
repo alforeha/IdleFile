@@ -9,7 +9,7 @@ const {registerIpc} = require('./ipc');
 // Running from source (npm run dev) uses its own profile, so it never touches the installed app's
 // local settings or recovery records. The installed app keeps Electron's default userData folder.
 const DEV_PROFILE = 'folder-app-dev';
-if (!app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), DEV_PROFILE));
+if (!app.isPackaged) app.setPath('userData', process.env.FOLDER_APP_DEV_PROFILE_DIR || path.join(app.getPath('appData'), DEV_PROFILE));
 
 app.whenReady().then(async () => {
   const userData = app.getPath('userData');

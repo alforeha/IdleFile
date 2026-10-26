@@ -1,7 +1,7 @@
 'use strict';
 
 const api = window.folderApp;
-const state = {settings: null, settingsError: null, settingsPath: null, localPath: null, localError: null, roots: [], theme: 'system', booted: false, draft: null, page: 'home', editor: 'users', selected: null, structureId: '', requiredFor: null, loadingFor: null, required: [], values: {}, parent: '', preview: null, jobs: [], folder: '', folderData: null, treeOpen: new Set(), treeData: new Map()};
+const state = {settings: null, settingsError: null, settingsPath: null, localPath: null, localError: null, roots: [], pins: [], theme: 'system', settingsArea: 'pc', suggestedEdit: null, booted: false, draft: null, page: 'home', editor: 'suggested', selected: null, structureId: '', requiredFor: null, loadingFor: null, required: [], values: {}, parent: '', preview: null, jobs: [], folder: '', folderData: null, treeOpen: new Set(), treeData: new Map()};
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => crypto.randomUUID();
@@ -144,18 +144,7 @@ function renderPreview() {
   });
 }
 
-function renderSettings() {
-  const target = $('#settings');
-  if (!state.draft) { target.innerHTML = '<div class="notice">Choose shared settings on Home first.</div>'; return; }
-  target.innerHTML = `<div class="card"><div class="row between"><div><h2>Shared file</h2><span class="path">${esc(state.settings.path)}</span></div><div class="row"><button class="button secondary" id="discard">Discard edits / reload</button><button class="button" id="save-settings">Save all changes</button></div></div><p class="muted small">Settings save together. If another PC changed the file, reload and reapply your edits.</p></div><div class="row" id="settings-tabs"><button class="button ${state.editor === 'users' ? '' : 'secondary'}" data-editor="users">Users</button><button class="button ${state.editor === 'templates' ? '' : 'secondary'}" data-editor="templates">Doc templates</button><button class="button ${state.editor === 'structures' ? '' : 'secondary'}" data-editor="structures">Structures</button><button class="button ${state.editor === 'roots' ? '' : 'secondary'}" data-editor="roots">Explorer roots</button></div><div id="settings-body" style="margin-top:17px"></div>`;
-  $('#settings-tabs').querySelectorAll('[data-editor]').forEach(button => button.onclick = () => { state.editor = button.dataset.editor; state.selected = null; renderSettings(); });
-  $('#discard').onclick = () => safe(async () => { state.settings = await api.reloadSettings(); saveDraft(); state.preview = null; invalidateRequired(); renderSettings(); message('Settings reloaded.'); });
-  $('#save-settings').onclick = () => safe(async () => { state.settings = await api.saveSettings({data: state.draft, revision: state.settings.revision}); saveDraft(); state.preview = null; invalidateRequired(); message('Shared settings saved.', 'success'); render(); });
-  if (state.editor === 'users') renderUsers();
-  if (state.editor === 'templates') renderTemplates();
-  if (state.editor === 'structures') renderStructures();
-  if (state.editor === 'roots') renderRootsSettings();
-}
+function renderSettings() { renderNewSettings(); }
 function entityList(items, selectedId) {
   return `<div class="list">${items.map(item => `<button data-select="${esc(item.id)}" class="${item.id === selectedId ? 'selected' : ''}"><strong>${esc(item.name)}</strong><small>${esc(item.id)}</small></button>`).join('')}</div>`;
 }
@@ -201,11 +190,6 @@ function renderStructures() {
   $('#document-rows').querySelectorAll('[data-remove-document]').forEach(button => button.onclick = () => { selected.documents.splice(Number(button.dataset.removeDocument), 1); renderStructures(); });
   $('#delete-structure').onclick = () => { if (!confirm(`Remove ${selected.name}?`)) return; state.draft.standards.structures = structures.filter(s => s.id !== selected.id); state.selected = state.draft.standards.structures[0]?.id; renderStructures(); };
 }
-function renderRootsSettings() {
-  $('#settings-body').innerHTML = `<div class="card"><h2>Local Explorer roots</h2><p class="muted">These folders are saved on this PC. Adding or removing them does not change shared settings.</p><div id="root-items">${state.roots.map((root, index) => `<div class="row" style="margin:7px 0"><span class="path" style="flex:1">${esc(root)}</span><button class="button secondary" data-remove-root="${index}">Remove</button></div>`).join('')}</div><button class="button secondary" id="add-root">Add folder</button></div>`;
-  $('#add-root').onclick = () => safe(async () => { state.roots = await api.addRoot(); renderRootsSettings(); window.dispatchEvent(new Event('roots-changed')); });
-  $('#root-items').querySelectorAll('[data-remove-root]').forEach(button => button.onclick = () => safe(async () => { state.roots = await api.removeRoot(state.roots[Number(button.dataset.removeRoot)]); renderRootsSettings(); window.dispatchEvent(new Event('roots-changed')); }));
-}
 async function openFolder(folder) {
   window.dispatchEvent(new CustomEvent('shell-open-folder', {detail: folder}));
 }
@@ -237,6 +221,7 @@ function applyBoot(boot) {
   state.localError = boot.localError || null;
   state.jobs = boot.jobs;
   state.roots = boot.explorerRoots || [];
+  state.pins = boot.folderPins || [];
   state.theme = boot.theme || 'system';
   state.booted = true;
   saveDraft();
@@ -254,7 +239,9 @@ function resetBrowsing() {
 }
 async function chooseSettings(choose) {
   state.settings = await choose();
-  state.roots = (await api.bootstrap()).explorerRoots || [];
+  const boot = await api.bootstrap();
+  state.roots = boot.explorerRoots || [];
+  state.pins = boot.folderPins || [];
   state.settingsError = null;
   state.settingsPath = state.settings?.path || state.settingsPath;
   saveDraft();

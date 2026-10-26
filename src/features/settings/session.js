@@ -6,6 +6,7 @@
 const {loadLocalSettings, saveLocalSettings} = require('../../platform/local-settings');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const {fullPath} = require('../explorer/explorer');
 const {loadSettings, openExistingSettings, createNewSettings, saveSettings, selectedUserAfterReload} = require('./shared-settings');
 
 function createSettingsSession({localFile}) {
@@ -60,6 +61,16 @@ function createSettingsSession({localFile}) {
 
   async function save(data, revision) {
     if (!local?.settingsPath) throw new Error('Choose settings first.');
+    for (const item of data.suggestedLocations || []) {
+      const target = fullPath(item.path);
+      try {
+        const stat = await fs.stat(target);
+        if (item.type === 'folder' && !stat.isDirectory() || item.type === 'file' && !stat.isFile())
+          throw new Error(`Suggested location type does not match: ${target}`);
+      } catch (error) {
+        if (!['ENOENT', 'ENOTCONN', 'EACCES', 'EPERM', 'ENETUNREACH'].includes(error.code)) throw error;
+      }
+    }
     await saveSettings(local.settingsPath, data, revision);
     return current();
   }
@@ -73,7 +84,7 @@ function createSettingsSession({localFile}) {
 
   function status() {
     return {localPath: localFile, localError, settingsPath: local?.settingsPath || null,
-      explorerRoots: local?.explorerRoots || [], theme: local?.theme || 'system'};
+      explorerRoots: local?.explorerRoots || [], folderPins: local?.folderPins || [], theme: local?.theme || 'system'};
   }
 
   function roots() { return local?.explorerRoots || []; }
@@ -101,8 +112,22 @@ function createSettingsSession({localFile}) {
     return theme;
   }
 
-  return {loadLocal, current, requireCurrent, useExisting, useNew, save, selectUser, status, roots, addRoot, removeRoot, setTheme};
+  function pins() { return local?.folderPins || []; }
+  async function addPin(folder) {
+    const actual = path.resolve(folder);
+    if (!path.isAbsolute(folder) || !(await fs.stat(actual)).isDirectory()) throw new Error('Pin must be an accessible folder at a full path.');
+    if (!pins().some(pin => pathKey(pin) === pathKey(actual))) await updateLocal({folderPins: [...pins(), actual]});
+    return pins();
+  }
+  async function removePin(folder) {
+    await updateLocal({folderPins: pins().filter(pin => pathKey(pin) !== pathKey(folder))});
+    return pins();
+  }
+
+  return {loadLocal, current, requireCurrent, useExisting, useNew, save, selectUser, status, roots, addRoot, removeRoot, pins, addPin, removePin, setTheme};
 }
+
+function pathKey(value) { const resolved = path.resolve(value); return process.platform === 'win32' ? resolved.toLowerCase() : resolved; }
 
 function normalizeRoots(roots) {
   const seen = new Set();
