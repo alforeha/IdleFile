@@ -32,5 +32,9 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     }
+  },
+  "dependencies": {
+    "dompurify": "3.4.17",
+    "marked": "15.0.12"
   }
 }

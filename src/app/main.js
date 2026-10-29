@@ -16,12 +16,19 @@ app.whenReady().then(async () => {
   const session = createSettingsSession({localFile: path.join(userData, 'local.json')});
   await session.loadLocal();
   const projects = createProjectService({session, journalDir: path.join(userData, 'recovery')});
-  registerIpc({session, projects});
+  const {dirtyWindows} = registerIpc({session, projects, savePointDir: path.join(userData, 'save-points')});
   const window = new BrowserWindow({
     width: 1280, height: 840, minWidth: 700, minHeight: 520, frame: false, autoHideMenuBar: true,
     webPreferences: {preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true}
   });
   window.setMenuBarVisibility(false);
+  window.on('close', event => {
+    if (!dirtyWindows.get(window)) return;
+    event.preventDefault();
+    window.webContents.send('viewer.close-request');
+  });
+  window.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
+  window.webContents.on('will-navigate', event => event.preventDefault());
   await window.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 });
 

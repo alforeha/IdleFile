@@ -47,3 +47,28 @@ async function loadExplorerBranch(folder, more = false, quiet = false) {
   if (!quiet || after !== before) renderSidebar();
   if (dirty) loadExplorerBranch(folder, false, true).catch(failure);
 }
+
+async function refreshCollapsedRows(changedPaths) {
+  if (!api.locationStatus || beta.collapsed || beta.side !== 'explorer') return;
+  const rows = [...document.querySelectorAll('#side-content .tree-row-beta[data-menu-kind="folder"]')]
+    .filter(row => !beta.expanded.has(row.dataset.menuPath) && changedPaths.some(path => same(path, row.dataset.menuPath)))
+    .slice(0, 100);
+  if (!rows.length) return;
+  const results = await api.locationStatus(rows.map(row => ({path: row.dataset.menuPath, type: 'folder'})));
+  let updated = false;
+  for (const result of results) {
+    for (const page of beta.tree.values()) {
+      const item = page.entries?.find(entry => same(entry.path, result.path));
+      if (item && (item.status !== result.status || item.error !== result.error)) {
+        item.status = result.available ? result.status : 'unavailable';
+        item.error = result.error;
+        updated = true;
+      }
+    }
+    const root = beta.rootStatus.find(item => same(item.path, result.path));
+    if (root && (root.status !== result.status || root.available !== result.available)) {
+      root.status = result.status; root.available = result.available; updated = true;
+    }
+  }
+  if (updated) renderSidebar();
+}

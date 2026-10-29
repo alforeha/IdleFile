@@ -11,6 +11,17 @@ const {loadLocalSettings, saveLocalSettings} = require('../src/platform/local-se
 const {createSettingsSession} = require('../src/features/settings/session');
 const {scratch, fixture} = require('./helpers');
 
+test('viewer mode and Wrap persist in this PC local settings', async t => {
+  const dir = await scratch(t);
+  const localFile = path.join(dir, 'viewer-local.json');
+  const first = createSettingsSession({localFile});
+  await first.loadLocal();
+  await first.setViewerPreferences({markdownMode: 'split', textWrap: false});
+  const second = createSettingsSession({localFile});
+  await second.loadLocal();
+  assert.deepEqual(second.status().viewerPreferences, {markdownMode: 'split', textWrap: false});
+});
+
 async function unusedDriveRoot() {
   for (const letter of 'QRSTUVWXYZ') {
     try {

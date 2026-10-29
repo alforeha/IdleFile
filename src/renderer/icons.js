@@ -34,6 +34,11 @@ const ICON_PATHS = Object.freeze({
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/>',
   check: '<path d="m4 12 5 5L20 6"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 10v7m0-10v.5"/>',
+  code: '<path d="m8 5-6 7 6 7M16 5l6 7-6 7M14 3l-4 18"/>',
+  eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>',
+  wrap: '<path d="M3 5h18M3 9h18M3 13h12a3 3 0 0 1 0 6H9m3-3-3 3 3 3M3 19h3"/>',
+  save: '<path d="M4 3h15l2 2v16H4zM7 3v6h10V3M8 21v-8h9v8"/>',
   external: '<path d="M13 4h7v7m0-7-9 9"/><path d="M19 14v6H4V5h6"/>'
 });
 

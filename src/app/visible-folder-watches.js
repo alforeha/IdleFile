@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const {fullPath} = require('../features/explorer/explorer');
+const {pathKey} = require('../platform/path-key');
 
 const MAX_WATCHES = 64;
 const POLL_MS = 5000;
@@ -22,7 +23,7 @@ function createVisibleFolderWatches(window, options = {}) {
     if (!closed && !window.isDestroyed() && paths.length) window.webContents.send('explorer.changed', paths);
   }
   function queue(folder) {
-    const key = folder.toLowerCase();
+    const key = pathKey(folder);
     if (!visible.has(key) || pending.has(key)) return;
     pending.set(key, setTimeout(() => {
       pending.delete(key);
@@ -74,7 +75,7 @@ function createVisibleFolderWatches(window, options = {}) {
     for (const item of items.slice(0, 1000)) {
       try {
         const folder = fullPath(item.path);
-        const key = folder.toLowerCase();
+        const key = pathKey(folder);
         next.set(key, {path: folder, watch: !!item.watch || !!next.get(key)?.watch});
       } catch { /* Ignore malformed renderer requests. */ }
     }

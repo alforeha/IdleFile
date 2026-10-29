@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="shell.css">
   <link rel="stylesheet" href="shortcuts.css">
+  <link rel="stylesheet" href="../features/file-viewer/viewer.css">
 </head>
 <body>
   <div id="beta-shell">
@@ -63,10 +64,17 @@
     </main>
   </div>
   <dialog id="path-dialog"><form method="dialog"><h2>Go to folder</h2><label>Full folder path<input type="text" aria-label="Full folder path" placeholder="C:\\Projects or \\\\server\\share\\Projects" required></label><div class="dialog-actions"><button type="button" data-browse>Browse…</button><button type="button" data-cancel>Cancel</button><button type="submit">Open</button></div></form></dialog>
+  <dialog id="viewer-dialog"><p></p><div class="viewer-dialog-actions"></div></dialog>
+  <script src="../../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
   <script src="icons.js"></script>
+  <script src="../platform/path-key.js"></script>
   <script src="app.js"></script>
   <script src="settings-locations.js"></script>
   <script src="explorer-tree.js"></script>
+  <script src="../features/file-viewer/markdown/renderer.js"></script>
+  <script src="../features/file-viewer/text/view.js"></script>
+  <script src="../features/file-viewer/viewer.js"></script>
   <script src="sidebar-width.js"></script>
   <script src="shortcuts.js"></script>
   <script src="shell.js"></script>

@@ -202,7 +202,7 @@ test('beta shell browses a real-shaped folder page, opens a file tab, and persis
     assert.equal(dom.window.document.querySelector('.properties-trigger').hidden, false);
     row.dispatchEvent(new dom.window.MouseEvent('dblclick', {bubbles: true}));
     await pause();
-    assert.match(dom.window.document.querySelector('#beta-content').textContent, /File viewer comes in Stage 5/);
+    assert.match(dom.window.document.querySelector('#beta-content').textContent, /Preview unavailable/);
     assert.ok(dom.window.document.querySelector('.file-pill'));
     dom.window.document.querySelector('#home-add').click();
     dom.window.document.querySelector('[data-workflow="settings"]').click();
@@ -219,7 +219,7 @@ test('beta shell browses a real-shaped folder page, opens a file tab, and persis
     assert.ok(dom.window.document.querySelector('#side-content .shortcut-warning, #side-content .tree-name-beta .icon'));
     dom.window.document.querySelector('[data-remove-root]').click();
     await pause();
-    assert.match(dom.window.document.querySelector('#beta-content').textContent, /File viewer comes in Stage 5/);
+    assert.match(dom.window.document.querySelector('#beta-content').textContent, /Preview unavailable/);
   } finally { dom.window.close(); }
 });
 
@@ -340,7 +340,7 @@ test('Suggested editor changes a draft while file suggestions open without Pin',
     fileRow.dispatchEvent(new dom.window.MouseEvent('contextmenu', {bubbles: true, clientX: 10, clientY: 10}));
     assert.doesNotMatch(dom.window.document.querySelector('.item-menu').textContent, /Pin/);
     fileRow.querySelector('[data-open-item]').click(); await pause();
-    assert.match(dom.window.document.querySelector('#beta-content').textContent, /File viewer comes in Stage 5/);
+    assert.match(dom.window.document.querySelector('#beta-content').textContent, /Preview unavailable/);
     dom.window.document.querySelector('#home-add').click();
     dom.window.document.querySelector('[data-page="settings"]').click();
     dom.window.document.querySelector('[data-settings-area="shared"]').click();

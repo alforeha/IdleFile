@@ -5,13 +5,21 @@
 
 const {dialog, ipcMain, BrowserWindow} = require('electron');
 const fs = require('node:fs/promises');
+const crypto = require('node:crypto');
 const {listDirectoryPage, inspectFile, resolvedKind, mapLimited, hasChild} = require('../features/explorer/explorer');
 const {createVisibleFolderWatches} = require('./visible-folder-watches');
+const viewer = require('../features/file-viewer/service');
 
 const JSON_FILTER = [{name: 'JSON', extensions: ['json']}];
 
-function registerIpc({session, projects}) {
+function registerIpc({session, projects, savePointDir}) {
   const visibleWatches = new WeakMap();
+  const openFiles = new WeakMap();
+  const dirtyWindows = new WeakMap();
+  const filesFor = sender => {
+    if (!openFiles.has(sender)) openFiles.set(sender, new Map());
+    return openFiles.get(sender);
+  };
   // Re-reads local settings each time, so a deleted local file is recreated on refresh.
   ipcMain.handle('bootstrap', async () => {
     await session.loadLocal();
@@ -22,7 +30,7 @@ function registerIpc({session, projects}) {
     } catch (error) {
       settingsError = error.message;
     }
-    return {settings, settingsError, ...session.status(), jobs: await projects.jobs()};
+    return {settings, settingsError, ...session.status(), jobs: await projects.jobs(), savePoints: await viewer.listSavePoints(savePointDir)};
   });
 
   ipcMain.handle('settings.open', async () => {
@@ -63,6 +71,42 @@ function registerIpc({session, projects}) {
     catch (error) { return {path: root, available: false, error: error.message}; }
   }));
   ipcMain.handle('theme.set', (_, theme) => session.setTheme(theme));
+  ipcMain.handle('viewer.preferences', (_, preferences) => session.setViewerPreferences(preferences));
+  ipcMain.handle('viewer.read', (_, target) => viewer.readFile(target));
+  ipcMain.handle('viewer.open', async (event, target) => {
+    const info = await viewer.readFile(target);
+    const handle = crypto.randomUUID();
+    filesFor(event.sender).set(handle, {path: target, hash: info.hash});
+    return {handle, info};
+  });
+  ipcMain.handle('viewer.reload', async (event, handle) => {
+    const entry = filesFor(event.sender).get(handle);
+    if (!entry) throw new Error('Reload requires an open file tab.');
+    const info = await viewer.readFile(entry.path);
+    entry.hash = info.hash;
+    return info;
+  });
+  ipcMain.handle('viewer.save', async (event, handle, source, overwrite) => {
+    const entry = filesFor(event.sender).get(handle);
+    if (!entry) throw new Error('Save requires an open file tab.');
+    const result = await viewer.saveFile(entry.path, source, entry.hash, overwrite, savePointDir);
+    if (!result.conflict) entry.hash = result.info.hash;
+    return result;
+  });
+  ipcMain.handle('viewer.closed', (event, handle) => filesFor(event.sender).delete(handle));
+  ipcMain.handle('viewer.save-points', () => viewer.listSavePoints(savePointDir));
+  ipcMain.handle('viewer.restore-point', (_, id) => viewer.restoreSavePoint(savePointDir, id));
+  ipcMain.handle('viewer.dismiss-point', (_, id) => viewer.dismissSavePoint(savePointDir, id));
+  ipcMain.handle('viewer.dirty', (event, dirty) => { const window = BrowserWindow.fromWebContents(event.sender); if (window) dirtyWindows.set(window, !!dirty); });
+  ipcMain.handle('viewer.window-finish', event => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window) { dirtyWindows.set(window, false); window.close(); }
+  });
+  ipcMain.handle('viewer.external', async (_, url) => {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Only web links can open in the browser.');
+    return require('electron').shell.openExternal(parsed.href);
+  });
   ipcMain.handle('window.control', (event, action) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) return;
@@ -85,6 +129,7 @@ function registerIpc({session, projects}) {
     if (!visibleWatches.has(window)) visibleWatches.set(window, createVisibleFolderWatches(window));
     visibleWatches.get(window).sync(folders);
   });
+  return {dirtyWindows};
 }
 
 module.exports = {registerIpc};

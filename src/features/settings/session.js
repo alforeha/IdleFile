@@ -84,7 +84,7 @@ function createSettingsSession({localFile}) {
 
   function status() {
     return {localPath: localFile, localError, settingsPath: local?.settingsPath || null,
-      explorerRoots: local?.explorerRoots || [], folderPins: local?.folderPins || [], theme: local?.theme || 'system'};
+      explorerRoots: local?.explorerRoots || [], folderPins: local?.folderPins || [], theme: local?.theme || 'system', viewerPreferences: local?.viewerPreferences || {markdownMode: 'preview', textWrap: true}};
   }
 
   function roots() { return local?.explorerRoots || []; }
@@ -111,6 +111,11 @@ function createSettingsSession({localFile}) {
     await updateLocal({theme});
     return theme;
   }
+  async function setViewerPreferences(preferences) {
+    if (!['raw', 'preview', 'split'].includes(preferences.markdownMode) || typeof preferences.textWrap !== 'boolean') throw new Error('Invalid viewer preferences.');
+    await updateLocal({viewerPreferences: preferences});
+    return preferences;
+  }
 
   function pins() { return local?.folderPins || []; }
   async function addPin(folder) {
@@ -124,7 +129,7 @@ function createSettingsSession({localFile}) {
     return pins();
   }
 
-  return {loadLocal, current, requireCurrent, useExisting, useNew, save, selectUser, status, roots, addRoot, removeRoot, pins, addPin, removePin, setTheme};
+  return {loadLocal, current, requireCurrent, useExisting, useNew, save, selectUser, status, roots, addRoot, removeRoot, pins, addPin, removePin, setTheme, setViewerPreferences};
 }
 
 function pathKey(value) { const resolved = path.resolve(value); return process.platform === 'win32' ? resolved.toLowerCase() : resolved; }

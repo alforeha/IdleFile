@@ -1,10 +1,25 @@
 'use strict';
 
-// Stage 2 shell owns tabs, local roots, folder navigation and file placeholders.
+// The shell owns tabs, local roots and folder navigation; file viewing lives in file-viewer.
+class PathMap extends Map {
+  constructor() { super(); this.index = new Map(); }
+  get(key) { return super.get(this.index.get(pathKey(key))); }
+  has(key) { return this.index.has(pathKey(key)); }
+  set(key, value) { const actual = this.index.get(pathKey(key)) || key; this.index.set(pathKey(key), actual); return super.set(actual, value); }
+  delete(key) { const actual = this.index.get(pathKey(key)); this.index.delete(pathKey(key)); return super.delete(actual); }
+  clear() { this.index.clear(); return super.clear(); }
+}
+class PathSet extends Set {
+  constructor() { super(); this.index = new Map(); }
+  has(key) { return this.index.has(pathKey(key)); }
+  add(key) { if (!this.has(key)) { this.index.set(pathKey(key), key); super.add(key); } return this; }
+  delete(key) { const actual = this.index.get(pathKey(key)); this.index.delete(pathKey(key)); return super.delete(actual); }
+  clear() { this.index.clear(); return super.clear(); }
+}
 // The existing settings and project forms remain mounted inside Home.
 const beta = {
   roots: [], rootStatus: [], pins: [], pinStatus: [], suggestedStatus: [], suggestionsExpanded: false, theme: 'system', homeOpen: true, side: 'explorer', collapsed: false,
-  folders: new Map(), files: new Map(), tree: new Map(), expanded: new Set(),
+  folders: new PathMap(), files: new PathMap(), tree: new PathMap(), expanded: new PathSet(),
   active: {kind: 'home'}, currentFolder: null, rootActive: null,
   history: [], historyIndex: -1, scope: 'folder', view: 'details',
   sort: 'name', direction: 'asc', search: '', type: 'all', selected: null,
@@ -14,9 +29,9 @@ const bq = selector => document.querySelector(selector);
 const be = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const label = p => p.replace(/[\\/]$/, '').split(/[\\/]/).at(-1) || p;
 const rootLabel = p => label(p).replace(/^\d{4}_/, '').replace(/[_-]+/g, ' ');
-const parent = p => { const trimmed = p.replace(/[\\/]$/, ''); if (/^\\\\[^\\]+\\[^\\]+$/.test(trimmed)) return p; const at = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/')); return at < 0 ? '' : at === 2 && trimmed[1] === ':' ? trimmed.slice(0, 3) : trimmed.slice(0, at) || trimmed.slice(0, 1); };
-const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
-const inside = (p, root) => same(p, root) || p.toLowerCase().startsWith(`${root.replace(/[\\/]$/, '').toLowerCase()}${root.includes('\\') ? '\\' : '/'}`);
+const parent = p => { const trimmed = p.replace(/[\\/]+$/, ''); if (/^[A-Za-z]:$/.test(trimmed) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+$/.test(trimmed)) return p; const at = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/')); return at < 0 ? '' : at === 2 && trimmed[1] === ':' ? trimmed.slice(0, 3) : trimmed.slice(0, at) || trimmed.slice(0, 1); };
+const same = (a, b) => pathKey(a) === pathKey(b);
+const inside = (p, root) => same(p, root) || pathKey(p).startsWith(`${pathKey(root).replace(/\\$/, '')}\\`);
 const rootFor = p => [...beta.roots].sort((a, b) => b.length - a.length).find(root => inside(p, root));
 const ib = (key, title, action, extra = '') => `<button class="icon-button ${extra}" data-action="${be(action)}" aria-label="${be(title)}" title="${be(title)}" ${extra.includes('disabled') ? 'disabled' : ''}>${icon(key)}</button>`;
 const kindType = item => item.kind === 'folder' ? 'Folder' : item.kind === 'link' ? 'Link' : (item.name.includes('.') ? item.name.split('.').at(-1).toUpperCase() : 'File');
@@ -115,11 +130,12 @@ async function loadFolder(path, offset = 0, quiet = false) {
 }
 async function openFile(path) {
   if (!beta.folders.has(parent(path))) await openFolder(parent(path));
-  let info = null; let error = null;
-  try { info = await api.inspectFile(path); }
-  catch (failure) { error = failure.message; }
-  if (!beta.files.has(path)) beta.files.set(path, {path, info, error});
-  else Object.assign(beta.files.get(path), {info, error});
+  let file = beta.files.get(path);
+  if (!file) {
+    file = {path, info: null, source: '', savedSource: '', error: null, mode: viewerPreferences.markdownMode, wrap: viewerPreferences.textWrap};
+    beta.files.set(path, file);
+    await loadViewerFile(file);
+  }
   const folder = parent(path);
   if (beta.folders.has(folder)) beta.currentFolder = folder;
   beta.active = {kind: 'file', path}; beta.rootActive = rootFor(path) || folder;
@@ -127,8 +143,9 @@ async function openFile(path) {
   revealTab('#file-strip [data-file]', 'file', path);
 }
 function closeFolder(path) {
+  if ([...beta.files.values()].some(file => inside(file.path, path) && viewerDirty(file))) { note('Save or discard open file edits before closing this folder.'); return; }
   for (const key of [...beta.folders.keys()]) if (inside(key, path)) beta.folders.delete(key);
-  for (const key of [...beta.files.keys()]) if (inside(key, path)) beta.files.delete(key);
+  for (const file of [...beta.files.values()]) if (inside(file.path, path)) { beta.files.delete(file.path); if (file.handle) api.closeViewerFile?.(file.handle); }
   if (beta.active.kind !== 'home' && inside(beta.active.path, path)) {
     const remaining = [...beta.folders.keys()].at(-1);
     beta.active = remaining ? {kind: 'folder', path: remaining} : {kind: beta.homeOpen ? 'home' : 'none'};
@@ -190,7 +207,7 @@ function syncVisibleFolders() {
   const folders = new Map();
   const add = (path, watch) => {
     if (!path) return;
-    const key = path.toLowerCase();
+    const key = pathKey(path);
     folders.set(key, {path, watch: !!watch || !!folders.get(key)?.watch});
   };
   for (const path of beta.folders.keys()) add(path, true);
@@ -242,13 +259,13 @@ function renderFiles() {
   strip.hidden = beta.active.kind === 'home' || !beta.files.size;
   if (strip.hidden) return;
   const choices = {folder: 'Files in selected folder', root: 'Files in root group', all: 'All open files'};
-  strip.innerHTML = `${ib(`file_scope_${beta.scope === 'root' ? 'tab' : beta.scope}`, `${choices[beta.scope]}; click for next scope`, 'scope', 'scope-button')}<span class="file-strip-label">Open files</span>${visibleFiles().map(file => `<span class="file-pill ${beta.active.kind === 'file' && same(beta.active.path, file.path) ? 'active' : ''}"><button data-file="${be(file.path)}" title="${be(file.path)}">${icon('file', 14)}<span>${be(label(file.path))}${beta.scope !== 'folder' ? `<small>${be(label(parent(file.path)))}</small>` : ''}</span></button><button data-close-file="${be(file.path)}" aria-label="Close ${be(label(file.path))}" title="Close file tab">${icon('close', 12)}</button></span>`).join('') || `<span class="muted">No open files in this scope. ${beta.files.size} open elsewhere.</span>`}`;
+  strip.innerHTML = `${ib(`file_scope_${beta.scope === 'root' ? 'tab' : beta.scope}`, `${choices[beta.scope]}; click for next scope`, 'scope', 'scope-button')}<span class="file-strip-label">Open files</span>${visibleFiles().map(file => `<span class="file-pill ${beta.active.kind === 'file' && same(beta.active.path, file.path) ? 'active' : ''} ${viewerDirty(file) ? 'dirty' : ''}"><button data-file="${be(file.path)}" title="${be(file.path)}">${icon('file', 14)}<span>${be(label(file.path))}${beta.scope !== 'folder' ? `<small>${be(label(parent(file.path)))}</small>` : ''}</span></button><button data-close-file="${be(file.path)}" aria-label="Close ${be(label(file.path))}" title="Close file tab">${icon('close', 12)}</button></span>`).join('') || `<span class="muted">No open files in this scope. ${beta.files.size} open elsewhere.</span>`}`;
 }
 function pathButtons(path) {
   const separator = path.includes('\\') ? '\\' : '/';
   const parts = path.split(/[\\/]+/).filter(Boolean);
   const windowsDrive = /^[A-Za-z]:$/.test(parts[0]);
-  const unc = path.startsWith('\\\\');
+  const unc = path.startsWith('\\\\') || path.startsWith('//');
   let current = unc ? `\\\\${parts.shift()}\\${parts.shift()}` : windowsDrive ? `${parts.shift()}\\` : '/';
   const segments = [{name: current === '/' ? '/' : current.replace(/[\\/]$/, ''), path: current}];
   for (const part of parts) {
@@ -289,17 +306,13 @@ function renderFolder(tab) {
     <div class="folder-status"><span>${shown.length} item${shown.length === 1 ? '' : 's'}${partial ? ` of ${data.total} loaded` : ''}</span><span>Select once for properties; double-click or press Enter to open</span></div>
   </div>`;
 }
-function renderFile(file) {
-  const info = file.info;
-  return `<div class="viewer-frame"><div class="viewer-head">${ib('back', 'Back to folder', 'folder-view')}<div><h1>${be(label(file.path))}</h1><p>${be(file.path)}</p></div></div><div class="viewer-placeholder">${icon('file', 36)}<h2>File viewer comes in Stage 5</h2><p>No file contents are read in this beta.</p>${info ? `<dl><dt>Type</dt><dd>${be(info.type)}</dd><dt>Modified</dt><dd>${be(formatDate(info.modified))}</dd></dl>` : ''}${file.error ? `<p class="error">${be(file.error)}</p><button data-action="file-refresh">Try again</button>` : ''}</div></div>`;
-}
 function renderContent() {
   const active = beta.active;
   const home = active.kind === 'home';
   bq('#legacy').hidden = !home;
   bq('#beta-content').hidden = home;
   if (home) return;
-  bq('#beta-content').innerHTML = active.kind === 'file' ? renderFile(beta.files.get(active.path)) : active.kind === 'folder' ? renderFolder(beta.folders.get(active.path)) : '<div class="state-card">No tab open. Use the plus button in the Explorer footer to open Home.</div>';
+  bq('#beta-content').innerHTML = active.kind === 'file' ? renderFileViewer(beta.files.get(active.path)) : active.kind === 'folder' ? renderFolder(beta.folders.get(active.path)) : '<div class="state-card">No tab open. Use the plus button in the Explorer footer to open Home.</div>';
 }
 function renderBeta() {
   const tabScroll = bq('#tab-strip').scrollLeft;
@@ -337,21 +350,21 @@ async function refreshCurrentView() {
   const jobs = [];
   if (path && beta.folders.has(path)) jobs.push(loadFolder(path, 0, true));
   if (path && beta.expanded.has(path)) jobs.push(loadExplorerBranch(path, false, true));
-  if (beta.active.kind === 'file') jobs.push(openFile(beta.active.path));
+  if (beta.active.kind === 'file') jobs.push(checkViewerFile(beta.files.get(beta.active.path), true));
   jobs.push(refreshRoots());
   await Promise.all(jobs);
 }
 
-const pendingFolderChanges = new Set();
+const pendingFolderChanges = new PathSet();
 let folderChangeTimer;
 let applyingFolderChanges = false;
 async function refreshLiveStatuses(paths) {
   if (!api.locationStatus) { await refreshRoots(); return; }
   const suggested = state.settings?.data.suggestedLocations || [];
   const targets = [...new Map([
-    ...beta.roots.map(path => [path.toLowerCase(), {path, type: 'folder'}]),
-    ...beta.pins.map(path => [path.toLowerCase(), {path, type: 'folder'}]),
-    ...suggested.map(item => [item.path.toLowerCase(), {path: item.path, type: item.type}])
+    ...beta.roots.map(path => [pathKey(path), {path, type: 'folder'}]),
+    ...beta.pins.map(path => [pathKey(path), {path, type: 'folder'}]),
+    ...suggested.map(item => [pathKey(item.path), {path: item.path, type: item.type}])
   ]).values()].filter(item => paths.some(path => same(path, item.path) || item.type === 'file' && same(path, parent(item.path))) && retryAllowed(`status:${item.path}`));
   if (!targets.length) return;
   const results = await api.locationStatus(targets);
@@ -377,7 +390,8 @@ async function applyFolderChanges() {
     pendingFolderChanges.clear();
     const work = [];
     for (const path of paths) {
-      if (beta.folders.has(path) && retryAllowed(`tab:${path}`)) work.push(() => loadFolder(path, 0, true));
+      if (beta.folders.has(path) && retryAllowed(`tab:${path}`)) work.push(() => loadFolder(beta.folders.get(path).path, 0, true));
+      for (const file of beta.files.values()) if (same(parent(file.path), path)) work.push(() => checkViewerFile(file));
       if (beta.expanded.has(path) && retryAllowed(`tree:${path}`) && !beta.collapsed && beta.side === 'explorer' && [...bq('#side-content').querySelectorAll('[data-expand]')].some(row => same(row.dataset.expand, path))) {
         work.push(() => loadExplorerBranch(path, false, true));
       }
@@ -387,6 +401,7 @@ async function applyFolderChanges() {
       while (index < work.length) await work[index++]();
     }));
     await refreshLiveStatuses(paths);
+    await refreshCollapsedRows(paths);
   } finally {
     applyingFolderChanges = false;
     if (pendingFolderChanges.size) setTimeout(() => applyFolderChanges().catch(failure), 0);
@@ -413,11 +428,12 @@ async function action(name) {
   if (name === 'properties') beta.properties = !beta.properties;
   if (name.startsWith('view:')) beta.view = name.slice(5);
   if (name === 'folder-view' && current) { beta.active = {kind:'folder', path:current}; await openFolder(current); return; }
-  if (name === 'file-refresh' && beta.active.kind === 'file') { await openFile(beta.active.path); return; }
+  if (name === 'file-refresh' && beta.active.kind === 'file') { await checkViewerFile(beta.files.get(beta.active.path), true); return; }
   renderBeta();
 }
 document.addEventListener('click', event => {
   const target = event.target.closest('button'); if (!target || !target.closest('#beta-shell')) return;
+  if (target.closest('.viewer-frame')) return;
   const run = async () => {
     if (target.dataset.window) return api.windowControl(target.dataset.window);
     if (target.id === 'panel-toggle') beta.collapsed = !beta.collapsed;
@@ -427,7 +443,7 @@ document.addEventListener('click', event => {
     else if (target.dataset.folder) return openFolder(target.dataset.folder);
     else if (target.dataset.file) return openFile(target.dataset.file);
     else if (target.dataset.closeFolder) return closeFolder(target.dataset.closeFolder);
-    else if (target.dataset.closeFile) { beta.files.delete(target.dataset.closeFile); if (beta.active.kind === 'file' && same(beta.active.path, target.dataset.closeFile)) beta.active = {kind:'folder', path:beta.currentFolder}; }
+    else if (target.dataset.closeFile) { await closeViewerTab(target.dataset.closeFile); return; }
     else if (target.dataset.removeRoot) { state.roots = await api.removeRoot(target.dataset.removeRoot); await refreshRoots(); }
     else if (target.dataset.expand) {
       const path = target.dataset.expand;
@@ -493,10 +509,10 @@ document.addEventListener('wheel', event => {
   strip.scrollLeft += event.deltaY;
   event.preventDefault();
 }, {passive: false});
-window.addEventListener('legacy-boot', () => { setTheme(state.theme); refreshRoots().catch(failure); });
+window.addEventListener('legacy-boot', () => { viewerSetup(state.viewerPreferences); setTheme(state.theme); refreshRoots().catch(failure); });
 window.addEventListener('legacy-page', event => document.querySelectorAll('[data-workflow]').forEach(item => item.classList.toggle('active', item.dataset.workflow === event.detail)));
 window.addEventListener('roots-changed', () => refreshRoots().catch(failure));
 window.addEventListener('suggestions-changed', () => refreshSuggestions().then(renderBeta).catch(failure));
 window.addEventListener('shell-open-folder', event => openFolder(event.detail).catch(failure));
 renderBeta();
-if (state.booted) { setTheme(state.theme); refreshRoots().catch(failure); }
+if (state.booted) { viewerSetup(state.viewerPreferences); setTheme(state.theme); refreshRoots().catch(failure); }

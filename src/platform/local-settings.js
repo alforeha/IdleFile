@@ -27,6 +27,7 @@ function validateLocalSettings(data) {
   if (data.folderPins !== undefined && (!Array.isArray(data.folderPins) || data.folderPins.some(pin => typeof pin !== 'string')))
     throw new Error('folderPins must be a list of paths.');
   if (data.theme !== undefined && !['system', 'light', 'dark'].includes(data.theme)) throw new Error('theme must be system, light, or dark.');
+  if (data.viewerPreferences !== undefined && (!data.viewerPreferences || !['raw', 'preview', 'split'].includes(data.viewerPreferences.markdownMode) || typeof data.viewerPreferences.textWrap !== 'boolean')) throw new Error('Invalid viewer preferences.');
   return {...data, schemaVersion: version, settingsPath: data.settingsPath || null, userId: data.userId || null};
 }
 

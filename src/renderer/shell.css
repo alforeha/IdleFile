@@ -139,10 +139,6 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 .state-card h2 { color: var(--text); font-size: 16px; margin: 8px 0; }
 .folder-status { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; color: var(--muted); font-size: 11px; }
 .folder-status span:last-child { margin-left: auto; }
-.viewer-frame { padding: 20px; }
-.viewer-head { display: flex; align-items: start; gap: 10px; }
-.viewer-head h1 { font-size: 20px; margin: 0 0 4px; }
-.viewer-head p { color: var(--muted); font-size: 12px; margin: 0; overflow-wrap: anywhere; }
 .viewer-placeholder { max-width: 620px; margin: 26px auto; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 38px 20px; }
 .viewer-placeholder h2 { font-size: 17px; }
 .viewer-placeholder dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; text-align: left; max-width: 260px; margin: 25px auto; }

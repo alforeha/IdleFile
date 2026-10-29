@@ -1,7 +1,7 @@
 'use strict';
 
 const api = window.folderApp;
-const state = {settings: null, settingsError: null, settingsPath: null, localPath: null, localError: null, roots: [], pins: [], theme: 'system', settingsArea: 'pc', suggestedEdit: null, booted: false, draft: null, page: 'home', editor: 'suggested', selected: null, structureId: '', requiredFor: null, loadingFor: null, required: [], values: {}, parent: '', preview: null, jobs: [], folder: '', folderData: null, treeOpen: new Set(), treeData: new Map()};
+const state = {settings: null, settingsError: null, settingsPath: null, localPath: null, localError: null, roots: [], pins: [], savePoints: [], theme: 'system', settingsArea: 'pc', suggestedEdit: null, booted: false, draft: null, page: 'home', editor: 'suggested', selected: null, structureId: '', requiredFor: null, loadingFor: null, required: [], values: {}, parent: '', preview: null, jobs: [], folder: '', folderData: null, treeOpen: new Set(), treeData: new Map()};
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => crypto.randomUUID();
@@ -80,6 +80,16 @@ function renderHome() {
     ${settingsProblems()}
     ${state.localPath ? `<p class="muted small">Local settings for this PC: <span class="path">${esc(state.localPath)}</span></p>` : ''}
   </div>${settings ? `<div class="card"><h2>Who are you?</h2><div class="row"><label class="field" style="max-width:320px"><span>User</span><select id="user-select"><option value="">Select a user…</option>${settings.data.users.map(u => `<option value="${esc(u.id)}" ${u.id === settings.selectedUserId ? 'selected' : ''}>${esc(u.name)} (${esc(u.initials)})</option>`).join('')}</select></label><button class="button secondary" id="select-user">Use this identity</button></div></div><div class="card"><h2>First workflow</h2><p>Define a Markdown template and a structure, then create its folders and starter documents.</p><div class="row"><button class="button" id="go-create">New project</button><button class="button secondary" id="go-settings">Edit structures and templates</button></div></div><div class="card"><h2>Creation recovery</h2><p class="muted small">Failed creations stay in a readable local JSON queue. Review the error before choosing Retry. No operation retries itself.</p><div id="jobs"></div></div>` : ''}`;
+  if (state.savePoints.length) {
+    $('#home').insertAdjacentHTML('afterbegin', `<div class="card" role="status"><h2>File save recovery</h2><p class="muted small">These original files were kept after an interrupted save.</p>${state.savePoints.map(point => `<div class="job"><div class="path">${esc(point.path)}</div><p class="small">${esc(new Date(point.createdAt).toLocaleString())}</p><div class="row"><button class="button secondary" data-restore-point="${esc(point.id)}">Restore original</button><button class="button secondary" data-dismiss-point="${esc(point.id)}">Dismiss</button></div></div>`).join('')}</div>`);
+    $('#home').querySelectorAll('[data-restore-point],[data-dismiss-point]').forEach(button => button.onclick = () => safe(async () => {
+      if (button.dataset.restorePoint) await api.restoreSavePoint(button.dataset.restorePoint);
+      else await api.dismissSavePoint(button.dataset.dismissPoint);
+      state.savePoints = await api.listSavePoints();
+      message(button.dataset.restorePoint ? 'Original file restored.' : 'Save point dismissed.', 'success');
+      renderHome();
+    }));
+  }
   $('#open-settings').onclick = () => safe(() => chooseSettings(api.openSettings));
   $('#new-settings').onclick = () => safe(() => chooseSettings(api.newSettings));
   if ($('#retry-settings')) $('#retry-settings').onclick = () => safe(refreshAll);
@@ -220,9 +230,11 @@ function applyBoot(boot) {
   state.localPath = boot.localPath || null;
   state.localError = boot.localError || null;
   state.jobs = boot.jobs;
+  state.savePoints = boot.savePoints || [];
   state.roots = boot.explorerRoots || [];
   state.pins = boot.folderPins || [];
   state.theme = boot.theme || 'system';
+  state.viewerPreferences = boot.viewerPreferences;
   state.booted = true;
   saveDraft();
   window.dispatchEvent(new Event('legacy-boot'));
